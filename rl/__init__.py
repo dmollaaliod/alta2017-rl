@@ -4,21 +4,14 @@ import json
 import rouge
 from nltk import sent_tokenize
 
-from xml_abstract_retriever import getAbstract
-
 VERBOSE = 1
 DEBUG = False
 
 rouge_engine = rouge.Rouge()
 
-def yield_candidate_text(questiondata, snippets_only=True):
+def yield_candidate_text(questiondata):
     """Yield all candidate text for a question
     >>> data = json.load(open("BioASQ-trainingDataset5b.json", encoding='utf-8'))['questions']
-    >>> y = yield_candidate_text(data[0], snippets_only=False)
-    >>> next(y)
-    ('15829955', 0, 'The identification of common variants that contribute to the genesis of human inherited disorders remains a significant challenge.')
-    >>> next(y)
-    ('15829955', 1, 'Hirschsprung disease (HSCR) is a multifactorial, non-mendelian disorder in which rare high-penetrance coding sequence mutations in the receptor tyrosine kinase RET contribute to risk in combination with mutations at other genes.')
     >>> y = yield_candidate_text(data[1], snippets_only=True)
     >>> next(y)
     ('55046d5ff8aee20f27000007', 0, 'the epidermal growth factor receptor (EGFR) ligands, such as epidermal growth factor (EGF) and amphiregulin (AREG)')
@@ -28,21 +21,9 @@ def yield_candidate_text(questiondata, snippets_only=True):
     past_pubmed = set()
     sn_i = 0
     for sn in questiondata['snippets']:
-        if snippets_only:
-            for s in sent_tokenize(sn['text']):
-                yield (questiondata['id'], sn_i, s)
-                sn_i += 1
-            continue
-
-        pubmed_id = os.path.basename(sn['document'])
-        if pubmed_id in past_pubmed:
-            continue
-        past_pubmed.add(pubmed_id)
-        file_name = os.path.join("Task5bPubMed", pubmed_id+".xml")
-        sent_i = 0
-        for s in sent_tokenize(getAbstract(file_name, version="0")[0]):
-            yield (pubmed_id, sent_i, s)
-            sent_i += 1
+        for s in sent_tokenize(sn['text']):
+            yield (questiondata['id'], sn_i, s)
+            sn_i += 1
 
 class Environment:
     def __init__(self, jsonfile='BioASQ-trainingDataset5b.json'):

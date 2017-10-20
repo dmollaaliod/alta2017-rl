@@ -21,7 +21,7 @@ EVALFILE = "reinforce_eval.csv"
 NN_EVALFILE = "nn_baseline_eval.csv"
 NOISE = 0.2 # Noise added when computing the action for training
 
-def yieldRouge(CorpusFile, snippets_only=True):
+def yieldRouge(CorpusFile):
     """yield ROUGE scores of all sentences in corpus
     >>> rouge = yieldRouge('BioASQ-trainingDataset5b.json')
     >>> target = (0, '15829955', 0, {'N-1': 0.1519, 'S4': 0.0, 'SU4': 0.04525, 'N-2': 0.0, 'L': 0.0}, 'The identification of common variants that contribute to the genesis of human inherited disorders remains a significant challenge.')
@@ -41,18 +41,18 @@ def yieldRouge(CorpusFile, snippets_only=True):
             ideal_answers = data[qi]['ideal_answer']
         else:
             ideal_answers = [data[qi]['ideal_answer']]
-        for (pubmedid, senti, sent) in yield_candidate_text(data[qi], snippets_only=snippets_only):                
+        for (pubmedid, senti, sent) in yield_candidate_text(data[qi]):                
             rouge_scores = [rouge_engine.get_scores(h, sent)[0] for h in ideal_answers]
             rouge_l = max([r['rouge-l']['f'] for r in rouge_scores])
             yield (qi, pubmedid, senti, rouge_l, sent)
 
-def saveRouge(corpusfile, outfile, snippets_only=True):
+def saveRouge(corpusfile, outfile):
     "Compute and save the ROUGE scores of the individual snippet sentences"
     with open(outfile,'w') as f:
         writer = csv.writer(f)
 #        writer.writerow(('qid','snipid','sentid','N1','N2','L','S4','SU4','sentence text'))
         writer.writerow(('qid','pubmedid','sentid','L','sentence text'))
-        for (qi,qsnipi,senti,F,sent) in yieldRouge(corpusfile, snippets_only=snippets_only):
+        for (qi,qsnipi,senti,F,sent) in yieldRouge(corpusfile):
             writer.writerow((qi,qsnipi,senti,F,sent))
 
 
@@ -123,7 +123,7 @@ def NNbaseline(testfile=EVALFILE):
     print("Test indices:", test_indices)
 
     tfidf_train_text = [all_data[x]['body'] for x in train_indices]
-    tfidf_train_text += [c[2] for x in train_indices for c in yield_candidate_text(all_data[x], snippets_only=True)]
+    tfidf_train_text += [c[2] for x in train_indices for c in yield_candidate_text(all_data[x])]
     ideal_summaries_sentences = []
     for x in train_indices:
         ideal_summaries = all_data[x]['ideal_answer']
@@ -292,7 +292,7 @@ def train():
     if VERBOSE > 0:
         print("Training tf.idf")
     tfidf_train_text = [env.data[x]['body'] for x in train_indices]
-    tfidf_train_text += [c[2] for x in train_indices for c in yield_candidate_text(env.data[x], snippets_only=True)]
+    tfidf_train_text += [c[2] for x in train_indices for c in yield_candidate_text(env.data[x])]
     ideal_summaries_sentences = []
     for x in train_indices:
         ideal_summaries = env.data[x]['ideal_answer']
