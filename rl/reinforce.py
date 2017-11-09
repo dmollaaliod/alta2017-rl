@@ -12,13 +12,10 @@ from rl import Environment, yield_candidate_text, rouge_engine
 VERBOSE = 1
 RESTORE = False
 CHECKPOINT_PATH = "reinforce.ckpt"
-NN_CHECKPOINT_PATH = "nn_baseline.ckpt"
 N_HIDDEN = 200
 SAVE_EPISODES = 200
 LOGFILE = "reinforce_log.csv"
-NN_LOGFILE = "nn_baseline_log.csv"
 EVALFILE = "reinforce_eval.csv"
-NN_EVALFILE = "nn_baseline_eval.csv"
 NOISE = 0.2 # Noise added when computing the action for training
 
 def yieldRouge(CorpusFile):
@@ -87,155 +84,6 @@ class NNModel():
             self.training_op = optimizer.apply_gradients(grads_and_vars_feed)
             self.init = tf.global_variables_initializer()
             self.saver = tf.train.Saver()
-
-def NNbaseline(testfile=EVALFILE):
-    """Evaluate a baseline that uses supervised NN"""
-    KEEP_PROB = 0.2 # Rate of cells to keep at the dropout layer
-    nanswers = {"summary": 6,
-                "factoid": 2,
-                "yesno": 2,
-                "list": 3}
-    with open(NN_LOGFILE, 'w') as f:
-        f.write("episode,reward,QID,summary\n")
-
-    with open(NN_EVALFILE, 'w') as f:
-        f.write("episode,reward,QID,summary\n")
-
-    env = Environment(jsonfile='BioASQ-trainingDataset5b.json')
-    all_data = env.data
-    with open('rl-rouge5b.csv') as f:
-        csvfile = csv.DictReader(f)
-        all_rouge = [l for l in csvfile]
-
-    if type(testfile) == None:
-        all_indices = list(range(len(all_data)))
-        np.random.shuffle(all_indices)
-        split_boundary = int(len(all_indices)*.8)
-        train_indices = all_indices[:split_boundary]
-        test_indices = all_indices[split_boundary:]
-    else:
-        with open(testfile) as f:
-            reader = csv.DictReader(f)
-            test_indices = list(set(int(l['QID']) for l in reader) & set(range(len(all_data))))
-        train_indices = [i for i in range(len(all_data)) if i not in test_indices]
-
-    print("Train indices:", train_indices)
-    print("Test indices:", test_indices)
-
-    tfidf_train_text = [all_data[x]['body'] for x in train_indices]
-    tfidf_train_text += [c[2] for x in train_indices for c in yield_candidate_text(all_data[x])]
-    ideal_summaries_sentences = []
-    for x in train_indices:
-        ideal_summaries = all_data[x]['ideal_answer']
-        if type(ideal_summaries) != list:
-            ideal_summaries = [ideal_summaries]
-        for ideal_sum in ideal_summaries:
-            ideal_summaries_sentences += sent_tokenize(ideal_sum)
-    tfidf_train_text += ideal_summaries_sentences
-    #print(len(tfidf_train_text))
-    #print(tfidf_train_text[:10])
-    tfidf = TfidfVectorizer(tokenizer=my_tokenize)
-    tfidf.fit(tfidf_train_text)
-    vocabulary_size = len(tfidf.get_feature_names())
-
-    graph = tf.Graph()
-    with graph.as_default():
-        X_state = tf.placeholder(tf.float32, shape=[None, 2*vocabulary_size]) # + 1])
-        Q_state = tf.placeholder(tf.float32, shape=[None, vocabulary_size])
-        Y_result = tf.placeholder(tf.float32, shape=[None, 1])
-        keep_prob = tf.placeholder(tf.float32)
-        dropout1 = tf.nn.dropout(tf.concat((X_state, Q_state), 1), keep_prob)
-        hidden = tf.layers.dense(dropout1, N_HIDDEN, activation=tf.nn.relu,
-                                 kernel_initializer=tf.contrib.layers.variance_scaling_initializer())
-        dropout2 = tf.nn.dropout(hidden, keep_prob)
-        outputs = tf.layers.dense(dropout2, 1, activation=None)
-
-        mse = tf.reduce_mean(tf.square(Y_result - outputs))
-        optimizer = tf.train.AdamOptimizer()
-        train = optimizer.minimize(mse)
-        init = tf.global_variables_initializer()
-        saver = tf.train.Saver()
-
-    if VERBOSE > 0:
-        print("Training NN Baseline")
-    with tf.Session(graph=graph) as sess:
-        if RESTORE:
-            saver.restore(sess, NN_CHECKPOINT_PATH)
-        else:
-            init.run()
-
-        episode = 0
-        while True:
-            # 1. Train
-            while True:
-                train_x = np.random.choice(train_indices)
-                observation = env.reset(train_x)
-                if len(env.candidates) > 0:
-                    break
-            tfidf_all_candidates = tfidf.transform(env.candidates).todense()
-            tfidf_all_text = tfidf.transform([" ".join(env.candidates)]).todense()[0,:]
-            Y = [[float(l['L'])] for l in all_rouge if int(l['qid']) == env.qid][:len(env.candidates)]
-            Q = np.tile(tfidf.transform([env.question]).todense()[0,:], (len(env.candidates),1))
-            X = np.vstack([np.hstack([tfidf_all_text, c]) for c in tfidf_all_candidates])
-            sess.run(train,
-                    feed_dict={X_state: X,
-                               Q_state: Q,
-                               Y_result: Y,
-                               keep_prob: KEEP_PROB})
-            # 2. Evaluate
-            predicted = sess.run(outputs,
-                                 feed_dict={X_state: X,
-                                            Q_state: Q,
-                                            keep_prob: 1.0})
-            n = nanswers[env.qtype]
-            topn = sorted(predicted)[-n:]
-            while not observation['done']:
-                if predicted[observation['next_candidate']] >= topn[0]:
-                    action = 1
-                else:
-                    action = 0
-                observation = env.step(action)
-            reward = observation['reward']
-            print("Episode: %i, reward: %f" % (episode, reward))
-            with open(NN_LOGFILE, 'a') as f:
-                f.write('%i,%f,%i,"%s"\n' % (episode,reward,env.qid," ".join([str(x) for x in observation['summary']])))
-
-            episode += 1
-            if episode % SAVE_EPISODES == 0:
-                print("Saving checkpoint in %s" % (NN_CHECKPOINT_PATH))
-                saver.save(sess, NN_CHECKPOINT_PATH)
-                # 3. Evaluate test data
-                print("Testing results")
-                test_results = []
-                for test_x in test_indices:
-                    observation = env.reset(test_x)
-                    if len(env.candidates) == 0:
-                        continue
-
-                    tfidf_all_candidates = tfidf.transform(env.candidates).todense()
-                    tfidf_all_text = tfidf.transform([" ".join(env.candidates)]).todense()[0,:]
-                    Q = np.tile(tfidf.transform([env.question]).todense()[0,:], (len(env.candidates), 1))
-                    X = np.vstack([np.hstack([tfidf_all_text, c]) for c in tfidf_all_candidates])
-                    predicted = sess.run(outputs,
-                                         feed_dict={X_state: X,
-                                                    Q_state: Q,
-                                                    keep_prob: 1.0})
-                    n = nanswers[env.qtype]
-                    topn = sorted(predicted)[-n:]
-                    while not observation['done']:
-                        if predicted[observation['next_candidate']] >= topn[0]:
-                            action = 1
-                        else:
-                            action = 0
-                        observation = env.step(action)
-                    reward = observation['reward']
-
-
-                    test_results.append(reward)
-                    with open(NN_EVALFILE, 'a') as f:
-                            f.write('%i,%f,%i,"%s"\n' % (episode,reward,env.qid," ".join([str(x) for x in observation['summary']])))
-                print("Mean of evaluation results:", np.mean(test_results))
-
 
 def baseline(testfile=EVALFILE):
     """Evaluate a baseline that returns the first n sentences"""

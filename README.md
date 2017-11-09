@@ -1,5 +1,10 @@
 # bioasq-rl
-Experiments using Reinforcement Learning for BioASQ
+Experiments using Reinforcement Learning for BioASQ as described in
+the following paper:
+
+D. Molla (2017). Towards the use of deep reinforce learning with global policy
+for query-based extractive summarisation. *Proceedings ALTA 2017*, Brisbane, 
+Australia.
 
 ## Train and evaluate reinforce for debugging
 
@@ -15,22 +20,6 @@ $ python3
 ```python
 >>> from rl import reinforce
 >>> reinforce.train()
-```
-
-## Train and evaluate NNbaseline for debugging
-```python
-$ python3
->>> import rl
->>> rl.DEBUG = True
->>> from rl import reinforce
->>> reinforce.NNbaseline()
-```
-
-## Train and evaluate NNbaseline for production
-```python
-$ python3
->>> from rl import reinforce
->>> reinforce.NNbaseline()
 ```
 
 ## Run "first n" baseline
